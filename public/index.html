@@ -1,0 +1,134 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+  <title>PhotoPi Timelapse</title>
+  <style>
+    body { font-family: 'Segoe UI', sans-serif; background: #0b132b; color: #e0e3ec; margin: 0; }
+    header { padding: 16px 20px; background: linear-gradient(135deg, #1c2541, #3a506b); }
+    h1 { margin: 0; font-weight: 700; letter-spacing: 0.5px; }
+    main { padding: 20px; display: grid; gap: 16px; }
+    section { background: rgba(255,255,255,0.04); border: 1px solid rgba(255,255,255,0.06); border-radius: 12px; padding: 16px; }
+    label { display: block; margin-bottom: 8px; font-size: 0.9rem; color: #9fb3c8; }
+    input[type="time"] { padding: 8px; border-radius: 8px; border: 1px solid #3a506b; background: #102040; color: #e0e3ec; }
+    button { padding: 10px 14px; border: none; border-radius: 10px; background: #5bc0be; color: #0b132b; font-weight: 700; cursor: pointer; }
+    button:hover { background: #6ad9d6; }
+    .times { display: flex; flex-wrap: wrap; gap: 10px; margin-bottom: 12px; }
+    .chip { background: rgba(91,192,190,0.18); border: 1px solid rgba(91,192,190,0.4); padding: 8px 10px; border-radius: 10px; display: flex; align-items: center; gap: 6px; }
+    .chip button { background: transparent; color: #e0e3ec; padding: 4px 6px; }
+    .grid-photos { display: grid; grid-template-columns: repeat(auto-fill, minmax(140px, 1fr)); gap: 10px; }
+    .grid-photos img { width: 100%; height: 100%; object-fit: cover; border-radius: 10px; border: 1px solid rgba(255,255,255,0.08); }
+    .bar { display: flex; gap: 10px; flex-wrap: wrap; align-items: center; }
+    .status { color: #9fb3c8; font-size: 0.9rem; }
+    footer { text-align: center; padding: 12px; color: #7086a1; font-size: 0.85rem; }
+  </style>
+</head>
+<body>
+  <header>
+    <h1>PhotoPi Timelapse</h1>
+  </header>
+  <main>
+    <section>
+      <h2>Schedule</h2>
+      <div class="times" id="times"></div>
+      <div class="bar">
+        <input type="time" id="newTime" />
+        <button id="add">Add time</button>
+        <span class="status" id="status"></span>
+      </div>
+      <div class="bar" style="margin-top:8px;">
+        <label for="timezone">Timezone</label>
+        <input id="timezone" placeholder="e.g. America/New_York" style="padding:8px;border-radius:8px;border:1px solid #3a506b;background:#102040;color:#e0e3ec;" />
+        <button id="save">Save schedule</button>
+      </div>
+    </section>
+    <section>
+      <h2>Capture</h2>
+      <button id="capture">Capture now</button>
+      <span class="status" id="captureStatus"></span>
+    </section>
+    <section>
+      <h2>Recent Photos</h2>
+      <div class="grid-photos" id="photos"></div>
+    </section>
+  </main>
+  <footer>Works with Raspberry Pi camera (libcamera-still or raspistill). Keep this page open locally; no cloud required.</footer>
+
+  <script>
+    let state = { times: [], timezone: 'UTC' };
+
+    async function loadConfig() {
+      const res = await fetch('/api/config');
+      state = await res.json();
+      renderTimes();
+      document.getElementById('timezone').value = state.timezone || '';
+    }
+
+    function renderTimes() {
+      const container = document.getElementById('times');
+      container.innerHTML = '';
+      state.times.forEach((time, idx) => {
+        const chip = document.createElement('div');
+        chip.className = 'chip';
+        chip.innerHTML = `<span>${time}</span>`;
+        const btn = document.createElement('button');
+        btn.textContent = '×';
+        btn.onclick = () => { state.times.splice(idx,1); renderTimes(); };
+        chip.appendChild(btn);
+        container.appendChild(chip);
+      });
+    }
+
+    async function save() {
+      const timezone = document.getElementById('timezone').value || 'UTC';
+      const res = await fetch('/api/config', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ times: state.times, timezone })
+      });
+      const data = await res.json();
+      document.getElementById('status').textContent = data.error ? data.error : 'Saved';
+      setTimeout(() => document.getElementById('status').textContent = '', 2000);
+    }
+
+    async function capture() {
+      document.getElementById('captureStatus').textContent = 'Capturing...';
+      const res = await fetch('/api/capture', { method: 'POST' });
+      const data = await res.json();
+      document.getElementById('captureStatus').textContent = data.error ? data.error : 'Captured';
+      loadPhotos();
+      setTimeout(() => document.getElementById('captureStatus').textContent = '', 2000);
+    }
+
+    async function loadPhotos() {
+      const res = await fetch('/api/photos');
+      const data = await res.json();
+      const container = document.getElementById('photos');
+      container.innerHTML = '';
+      data.photos.forEach((p) => {
+        const img = document.createElement('img');
+        img.src = p.url + '?v=' + Date.now();
+        img.alt = p.name;
+        container.appendChild(img);
+      });
+    }
+
+    document.getElementById('add').onclick = () => {
+      const t = document.getElementById('newTime').value;
+      if (/^\d{2}:\d{2}$/.test(t)) {
+        state.times.push(t);
+        state.times = Array.from(new Set(state.times)).sort();
+        document.getElementById('newTime').value = '';
+        renderTimes();
+      }
+    };
+
+    document.getElementById('save').onclick = save;
+    document.getElementById('capture').onclick = capture;
+
+    loadConfig();
+    loadPhotos();
+  </script>
+</body>
+</html>
